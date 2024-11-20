@@ -1,0 +1,166 @@
+---
+title: "starter_code_elasalin"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Reading data
+
+```{r}
+library(caret)
+library(dplyr)
+library(randomForest)
+```
+
+```{r coach_ratings, echo = TRUE, warning = FALSE, error = TRUE, message = FALSE}
+#setwd("")
+coachRatings <- read.csv("./coach_rating_train.csv")
+summary(coachRatings)
+head(coachRatings)
+
+```
+
+### Data Wrangling
+
+```{r null_values,echo = TRUE, warning = FALSE, error = TRUE, message = FALSE}
+na_count_per_column <- coachRatings %>% summarise(across(everything(), ~sum(is.na(.))))
+na_count_per_column
+
+#Rating_popularity_combined = 6059
+#years_of_experience = 2985
+```
+
+```{r imputation,echo = TRUE, warning = FALSE, error = TRUE, message = FALSE}
+
+coachRatings <- coachRatings %>%
+  mutate(years_of_experience = ifelse(is.na(years_of_experience), median(years_of_experience,
+                                                                       na.rm = TRUE), years_of_experience))
+
+coachRatings <- coachRatings %>% 
+  mutate(averageRating = ifelse(is.na(averageRating),median(averageRating,na.rm = TRUE)
+                                ,averageRating))
+
+coachRatings <- coachRatings %>% 
+  mutate(rating_popularity_combined = ifelse(is.na(rating_popularity_combined)
+                                             ,median(rating_popularity_combined,na.rm = TRUE)
+                                             ,rating_popularity_combined))
+```
+
+### Creating the outcome variable
+
+```{r}
+coachRatings$highKnowledge <- as.numeric(coachRatings$knowledge > 4)
+summary(coachRatings$highKnowledge)
+
+```
+```{r droping predictors}
+coachRatings$knowledge <- NULL
+
+#Based on importance:
+coachRatings$knowledge <- NULL
+coachRatings$specialty <- NULL
+coachRatings$reduces_anxiety <- NULL
+coachRatings$expert_in_sport <- NULL
+coachRatings$exp <- NULL
+coachRatings$strategic_thinking <- NULL
+coachRatings$passionate <- NULL
+
+```
+
+### Starting Model
+
+```{r train_test_splti,echo = TRUE, warning = FALSE, error = TRUE, message = FALSE}
+set.seed(950)
+nrows <- dim(coachRatings)[1]
+train_index <- sample(1:nrows, nrows * 0.65)
+train_df <- coachRatings[train_index,]
+valid_df <- coachRatings[-train_index,]  
+
+
+```
+
+```{r}
+colSums(is.na(valid_df))
+```
+```{r}
+colSums(is.na(train_df))
+```
+
+
+```{r random_forest,echo = TRUE, warning = FALSE, error = TRUE, message = FALSE}
+model_1 <- randomForest(highKnowledge ~ ., data = train_df,
+                        ntree = 1000,
+                        nodesize = 4,
+                        mtry=5)
+
+bag_preds <- predict(model_1, valid_df)
+bag_preds
+```
+
+
+```{r variable importance}
+importance(model_1)
+```
+
+```{r}
+# check
+valid_df$highKnowledge <- factor(valid_df$highKnowledge, levels = c(0, 1))
+
+bag_class <- ifelse(bag_preds > 0.50, 1, 0)  
+bag_class <- factor(bag_class, levels = c(0, 1))
+
+
+confusion_matrix <- confusionMatrix(bag_class,valid_df$highKnowledge)
+print(confusion_matrix)
+
+```
+
+### Make predictions
+
+
+
+
+```{r}
+coach_test_NoAnswers <- read.csv("./coach_test_NoAnswer.csv")
+```
+
+```{r wrangling_on_test}
+coach_test_NoAnswers <-coach_test_NoAnswers  %>%
+  mutate(years_of_experience = ifelse(is.na(years_of_experience), median(years_of_experience,
+                                                                       na.rm = TRUE), years_of_experience))
+
+coach_test_NoAnswers <- coach_test_NoAnswers %>% 
+  mutate(averageRating = ifelse(is.na(averageRating),median(averageRating,na.rm = TRUE)
+                                ,averageRating))
+
+coach_test_NoAnswers <- coach_test_NoAnswers %>% 
+  mutate(rating_popularity_combined = ifelse(is.na(rating_popularity_combined)
+                                             ,median(rating_popularity_combined,na.rm = TRUE)
+                                             ,rating_popularity_combined))
+
+coach_test_NoAnswers$specialty <- NULL
+coach_test_NoAnswers$reduces_anxiety <- NULL
+coach_test_NoAnswers$expert_in_sport <- NULL
+coach_test_NoAnswers$exp <- NULL
+coach_test_NoAnswers$strategic_thinking <- NULL
+coach_test_NoAnswers$passionate <- NULL
+
+```
+
+
+```{r}
+# predict on test data and check the first 5 predictions 
+prediction_test <- predict(model_1, coach_test_NoAnswers)
+prediction_test = as.numeric(prediction_test > 0.50)
+prediction_test[0:5]
+```
+
+## Submit predictions
+
+```{r}
+newdf_test_out <- cbind(coach_test_NoAnswer[c("reviewID")], prediction_test)
+write.csv(newdf_test_out, file="[elasalin]_[frozen].csv", row.names=FALSE)
+```
